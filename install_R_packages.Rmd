@@ -1,0 +1,39 @@
+---
+title: "Install R packages for practical sessions 1 and 2"
+output: html_document
+author: "Ricardo Leitão"
+---
+
+Run this once before the first session. It installs every package used in both practical sessions.
+
+# Bioconductor packages
+
+```{r}
+if (!requireNamespace("BiocManager", quietly = TRUE)) install.packages("BiocManager")
+
+BiocManager::install(c(
+  "ShortRead", "dada2", "Biostrings",   # practical session 1
+  "phyloseq",                           # sessions 1 and 2
+  "DESeq2", "microbiome"                # practical session 2
+))
+```
+
+# CRAN packages
+
+```{r}
+install.packages(c(
+  "ggplot2", "rmarkdown", "knitr",                     # both sessions
+  "RColorBrewer", "vegan", "ggvenn", "dplyr",          # practical session 2
+  "ggpubr", "scales", "ragg", "gplots"                 # practical session 2
+))
+```
+
+# Check that everything loads
+
+```{r}
+pkgs <- c("ShortRead", "dada2", "Biostrings", "phyloseq", "DESeq2", "microbiome",
+          "ggplot2", "rmarkdown", "knitr", "RColorBrewer", "vegan", "ggvenn",
+          "dplyr", "ggpubr", "scales", "ragg", "gplots")
+missing <- pkgs[!vapply(pkgs, requireNamespace, logical(1), quietly = TRUE)]
+if (length(missing)) message("Not installed: ", paste(missing, collapse = ", ")) else message("All packages installed.")
+```

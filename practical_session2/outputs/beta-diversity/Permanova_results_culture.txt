@@ -1,0 +1,11 @@
+Permutation test for adonis under reduced model
+Permutation: free
+Number of permutations: 10000
+
+adonis2(formula = bray ~ factor(Culture), data = vegan_data, permutations = 10000)
+         Df SumOfSqs      R2      F Pr(>F)   
+Model     1   0.7773 0.27463 3.7861 0.0019 **
+Residual 10   2.0530 0.72537                 
+Total    11   2.8303 1.00000                 
+---
+Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1

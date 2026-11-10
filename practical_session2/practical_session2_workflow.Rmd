@@ -1,0 +1,992 @@
+---
+title: "TP2_script_data_analysis"
+output: html_document
+date: "2026-03-17"
+author: "Ricardo Leitão"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Install packages
+
+```{r}
+# Run once (remove the # first). Bioconductor packages:
+#install.packages("BiocManager")
+#BiocManager::install("phyloseq")
+#BiocManager::install("DESeq2")
+#BiocManager::install("microbiome")
+
+# CRAN packages:
+#install.packages(c("ggplot2", "RColorBrewer", "vegan", "ggvenn", "dplyr",
+#                   "ggpubr", "scales", "ragg", "gplots", "rmarkdown", "knitr"))
+```
+
+# Load packages
+
+```{r}
+library(phyloseq); packageVersion("phyloseq")
+library(DESeq2); packageVersion("DESeq2")
+library(RColorBrewer); packageVersion("RColorBrewer")
+library(ggplot2); packageVersion("ggplot2")
+library(vegan); packageVersion("vegan")
+library(ggvenn); packageVersion("ggvenn")
+library(dplyr); packageVersion("dplyr")
+```
+
+#Define the working directory
+
+```{r}
+# Open this .Rmd from the practical_session2 folder (or the JMBE_2026.Rproj).
+# R then works from this folder, and all paths below are relative to it.
+getwd()
+
+```
+
+# Import phyloseq object
+
+```{r}
+ps_cultivar <- readRDS("data/ps_cultivar.rds")
+ps_cultivar
+
+```
+
+# Check phyloseq object
+
+```{r}
+#Metadata
+sample_data(ps_cultivar)
+
+# ASV/OTU table
+head(otu_table(ps_cultivar))
+
+# Taxonomic table
+head(tax_table(ps_cultivar))
+```
+
+## 1 - Alfa diversity
+
+## Create a new folder_path
+
+```{r}
+#create a directory named "alfa-diversity" inside outputs/:
+folder_path <- "outputs/alfa-diversity/"
+  if (!dir.exists(folder_path)) {
+    dir.create(folder_path, recursive = TRUE)
+    cat("Folder created successfully!\n")
+  } else {
+    cat("Folder already exists!\n")
+  }
+  
+```
+
+## Create a table with diversity indexes
+
+```{r}
+# Create a table with diversity indexes for the phyloseq object
+table <- estimate_richness(ps_cultivar, split = TRUE, measures = NULL)
+metadata <- sample_data(ps_cultivar)
+merged_table <- cbind(table, metadata)
+alfa_diversity_16s <- merged_table
+# Specify the path to the new file inside the folder
+file_path <- file.path(folder_path, "alfa_diversity_table.csv")
+head(merged_table)  
+# Write the table to the Excel file inside the folder
+write.csv(merged_table, file_path, row.names = TRUE)
+  
+```
+
+## Plot Culture with Wilcoxon test
+
+```{r}
+ps_alfa <- ps_cultivar 
+
+Culture_colors <- c(
+  "Olive" = "#5A8FBF",
+  "Almond" = "#A0522D"
+)
+
+# Get the long alpha table used by plot_richness
+p_tmp    <- plot_richness(ps_alfa, x = "Culture",
+                          measures = c("Chao1","Shannon","Simpson"))
+alpha_df <- p_tmp$data
+
+# Compute Wilcoxon p per measure (two levels in Culture)
+levs <- levels(droplevels(as.factor(alpha_df$Culture)))
+stopifnot(length(levs) == 2)
+
+wilcox_res <- do.call(rbind, lapply(split(alpha_df, alpha_df$variable), function(df) {
+  df <- df[complete.cases(df$value, df$Culture), ]
+  wt <- wilcox.test(value ~ Culture, data = df, exact = FALSE, correct = TRUE)
+  data.frame(
+    variable    = unique(df$variable),
+    p           = wt$p.value,
+    group1      = levs[1],
+    group2      = levs[2],
+    stringsAsFactors = FALSE
+  )
+}))
+
+# y-positions per facet and pretty label
+y_tops <- aggregate(value ~ variable, alpha_df, function(v) max(v, na.rm = TRUE) * 1.001)
+wilcox_res <- merge(wilcox_res, y_tops, by = "variable", all.x = TRUE)
+names(wilcox_res)[names(wilcox_res) == "value"] <- "y.position"
+wilcox_res$p.label <- scales::label_pvalue(accuracy = 0.001)(wilcox_res$p) # or use p.signif
+
+# Plot with Wilcoxon p annotated (one bracket per facet)
+pb1 <- ggplot(alpha_df, aes(x = Culture, y = value, color = Culture)) +
+  geom_boxplot(fill = NA, width = 0.6, outlier.shape = NA, linewidth = 0.4) +
+  geom_jitter(width = 0.12, alpha = 0.8, size = 0.9) +  # reduced dot size
+  facet_wrap(~ variable, scales = "free_y", nrow = 1) +
+  scale_color_manual(values = Culture_colors, drop = FALSE) +
+  theme_bw(base_size = 6) +
+  theme(
+    strip.text   = element_text(size = 6, face = "bold"),
+    axis.text.x  = element_text(angle = 0, hjust = 0.5, size = 6),
+    axis.text.y  = element_text(size = 5),
+    axis.title   = element_text(size = 6),
+    panel.spacing = unit(0.2, "lines"),
+    legend.position = "none",
+    plot.margin = margin(2, 2, 2, 2)
+  ) +
+  scale_y_continuous(expand = expansion(mult = c(0.02, 0.12))) +
+  ggpubr::stat_pvalue_manual(
+    wilcox_res,
+    label       = "p.label",
+    xmin        = "group1",
+    xmax        = "group2",
+    y.position  = "y.position",
+    tip.length  = 0.01,
+    inherit.aes = FALSE,
+    size        = 2
+  ) +
+  labs(x = "", y = NULL)
+
+
+pb1
+# Save the plot to the new directory with specified width, height, and dpi
+ggsave(
+  filename = file.path(folder_path, "Alfa_diversity_culture_plot.png"),
+  plot = pb1,
+  width = 3.35, height = 2.0, units = "in",
+  dpi = 600,
+  device = ragg::agg_png, # crisp text/lines; install.packages("ragg") if needed
+  bg = "white"
+)
+
+```
+
+## Subset ps_object
+
+```{r}
+ps_olive <- subset_samples(ps_cultivar, Culture == "Olive")
+ps_olive <- prune_taxa(taxa_sums(ps_olive) > 0, ps_olive)
+sample_data(ps_olive)$Culture <- droplevels(sample_data(ps_olive)$Culture)
+ps_olive
+ps_alfa <- ps_olive
+```
+
+## Plot System1 (olive only) with Wilcoxon test
+
+```{r}
+system1_colors <- c(
+  "O_olive" = "#A7C7E7",
+  "T_olive" = "#5A8FBF"
+)
+
+# Get the long alpha table used by plot_richness
+p_tmp    <- plot_richness(ps_alfa, x = "System1",
+                          measures = c("Chao1","Shannon","Simpson"))
+alpha_df <- p_tmp$data
+
+# Compute Wilcoxon p per measure (two levels in System1)
+levs <- levels(droplevels(as.factor(alpha_df$System1)))
+stopifnot(length(levs) == 2)
+
+wilcox_res <- do.call(rbind, lapply(split(alpha_df, alpha_df$variable), function(df) {
+  df <- df[complete.cases(df$value, df$System1), ]
+  wt <- wilcox.test(value ~ System1, data = df, exact = FALSE, correct = TRUE)
+  data.frame(
+    variable    = unique(df$variable),
+    p           = wt$p.value,
+    group1      = levs[1],
+    group2      = levs[2],
+    stringsAsFactors = FALSE
+  )
+}))
+
+# y-positions per facet and pretty label
+y_tops <- aggregate(value ~ variable, alpha_df, function(v) max(v, na.rm = TRUE) * 1.001)
+wilcox_res <- merge(wilcox_res, y_tops, by = "variable", all.x = TRUE)
+names(wilcox_res)[names(wilcox_res) == "value"] <- "y.position"
+wilcox_res$p.label <- scales::label_pvalue(accuracy = 0.001)(wilcox_res$p) # or use p.signif
+
+# Plot with Wilcoxon p annotated (one bracket per facet)
+pb1 <- ggplot(alpha_df, aes(x = System1, y = value, color = System1)) +
+  geom_boxplot(fill = NA, width = 0.6, outlier.shape = NA, linewidth = 0.4) +
+  geom_jitter(width = 0.12, alpha = 0.8, size = 0.9) +  # reduced dot size
+  facet_wrap(~ variable, scales = "free_y", nrow = 1) +
+  scale_color_manual(values = system1_colors, drop = FALSE) +
+  theme_bw(base_size = 6) +
+  theme(
+    strip.text   = element_text(size = 6, face = "bold"),
+    axis.text.x  = element_text(angle = 0, hjust = 0.5, size = 6),
+    axis.text.y  = element_text(size = 5),
+    axis.title   = element_text(size = 6),
+    panel.spacing = unit(0.2, "lines"),
+    legend.position = "none",
+    plot.margin = margin(2, 2, 2, 2)
+  ) +
+  scale_y_continuous(expand = expansion(mult = c(0.02, 0.12))) +
+  ggpubr::stat_pvalue_manual(
+    wilcox_res,
+    label       = "p.label",
+    xmin        = "group1",
+    xmax        = "group2",
+    y.position  = "y.position",
+    tip.length  = 0.01,
+    inherit.aes = FALSE,
+    size        = 2
+  ) +
+  labs(x = "", y = NULL)
+
+
+pb1
+# Save the plot to the new directory with specified width, height, and dpi
+ggsave(
+  filename = file.path(folder_path, "Alfa_diversity_plot_olive.png"),
+  plot = pb1,
+  width = 3.35, height = 2.0, units = "in",
+  dpi = 600,
+  device = ragg::agg_png, # crisp text/lines; install.packages("ragg") if needed
+  bg = "white"
+)
+
+```
+
+## 2 - Beta-diversity
+
+## Create a new folder_path
+
+```{r}
+#create a directory named "beta-diversity" inside outputs/:
+folder_path <- "outputs/beta-diversity/"
+  if (!dir.exists(folder_path)) {
+    dir.create(folder_path, recursive = TRUE)
+    cat("Folder created successfully!\n")
+  } else {
+    cat("Folder already exists!\n")
+  }
+  
+```
+
+## Prepare data - covert to vegan
+
+```{r}
+ps_beta <- ps_cultivar
+
+#### Vegan Function to Convert Phyloseq into Something Vegan can call directly
+vegan_otu <- function(physeq) {
+  OTU <- otu_table(physeq)
+  if (taxa_are_rows(OTU)) {
+    OTU <- t(OTU)
+  }
+  return(as(OTU, "matrix"))
+}
+        
+#Convert OTU table to abundance matrix if using Bray-Curtis distance
+#vegan_otu <- vegan_otu(ps_beta)
+
+#Convert Sample Data to     
+vegan_data <- as(sample_data(ps_beta),"data.frame")
+
+```
+
+## Plot culture
+
+```{r}
+# Extract sample metadata
+sample_metadata <- sample_data(ps_beta)
+sample_metadata$Samples <- rownames(sample_metadata)
+# Extract desired information (e.g., SampleType)
+labels <- sample_metadata$Samples
+
+#PCoA with bray curtis distance
+ord_result <- ordinate(ps_beta, method="PCoA", distance="bray")
+
+pb2 <- plot_ordination(ps_beta, ord_result, color = "Culture", title = NULL) +
+  stat_ellipse(geom = "path", type = "t", alpha = 0.12, linewidth = 2, show.legend = FALSE) +
+  theme_classic(base_size = 7) +
+  xlim(-0.6, NA) +
+  scale_color_manual(values = Culture_colors) +
+  geom_point(size = 0.7, alpha = 0.9) +
+  geom_text(aes(label = labels), size = 1.8, vjust = -0.5, show.legend = FALSE) +
+  guides(color = guide_legend(override.aes = list(shape = 16, size = 2))) +
+  labs(color = "Culture") +
+  theme(
+    axis.title       = element_text(size = 6.5),
+    axis.text        = element_text(size = 6),
+    legend.text      = element_text(size = 5.5),
+    legend.title     = element_text(size = 6.5, hjust = 0.5),
+    plot.title       = element_text(size = 8),
+    legend.key.size  = grid::unit(3, "mm"),
+    legend.key.width = grid::unit(3, "mm"),
+    plot.margin      = margin(3, 3, 3, 3)
+  )
+pb2
+
+# Save the plot to the new directory with specified width, height, and dpi
+ggsave(
+  filename = file.path(folder_path, "PcoA_culture.png"),
+  plot = pb2,
+  width = 3.35, height = 2.0, units = "in",
+  dpi = 600,
+  device = ragg::agg_png, # crisp text/lines; install.packages("ragg") if needed
+  bg = "white"
+)
+```
+
+## Run permanova
+
+```{r}
+bray <- phyloseq::distance(ps_beta, method = "bray", weighted = FALSE)
+set.seed(42)
+adonis_bray <- adonis2(bray ~ factor(Culture), data = vegan_data, permutations = 10000)
+print(adonis_bray)
+# Save the ADONIS result to a .txt file
+writeLines(capture.output(print(adonis_bray)), file.path(folder_path, "Permanova_results_culture.txt"))
+```
+
+## Plot System1
+
+```{r}
+system1_colors <- c(
+  "O_olive" = "#A7C7E7",
+  "T_olive" = "#5A8FBF",
+  "I_almond" = "#E69F00",
+  "HI_almond" = "#D55E00"
+)
+# Extract sample metadata
+sample_metadata <- sample_data(ps_beta)
+sample_metadata$Samples <- rownames(sample_metadata)
+# Extract desired information (e.g., SampleType)
+labels <- sample_metadata$Samples
+
+#PCoA with bray curtis distance
+ord_result <- ordinate(ps_beta, method="PCoA", distance="bray")
+
+pb3 <- plot_ordination(ps_beta, ord_result, color = "System1", title = NULL) +
+  theme_classic(base_size = 7) +
+  xlim(-0.6, NA) +
+  scale_color_manual(values = system1_colors) +
+  geom_point(size = 0.7, alpha = 0.9) +
+  geom_text(aes(label = labels), size = 1.8, vjust = -0.5, show.legend = FALSE) +
+  guides(color = guide_legend(override.aes = list(shape = 16, size = 2))) +
+  labs(color = "System1") +
+  theme(
+    axis.title       = element_text(size = 6.5),
+    axis.text        = element_text(size = 6),
+    legend.text      = element_text(size = 5.5),
+    legend.title     = element_text(size = 6.5, hjust = 0.5),
+    plot.title       = element_text(size = 8),
+    legend.key.size  = grid::unit(3, "mm"),
+    legend.key.width = grid::unit(3, "mm"),
+    plot.margin      = margin(3, 3, 3, 3)
+  )
+pb3
+
+# Save the plot to the new directory with specified width, height, and dpi
+ggsave(
+  filename = file.path(folder_path, "PcoA_system1.png"),
+  plot = pb3,
+  width = 3.35, height = 2.0, units = "in",
+  dpi = 600,
+  device = ragg::agg_png, # crisp text/lines; install.packages("ragg") if needed
+  bg = "white"
+)
+```
+
+## 3 - Venn Diagram - Suplementary
+
+## Create a new folder_path
+
+```{r}
+folder_path <- "outputs/venn_diagram/"
+  if (!dir.exists(folder_path)) {
+    dir.create(folder_path, recursive = TRUE)
+    cat("Folder created successfully!\n")
+  } else {
+    cat("Folder already exists!\n")
+  }
+
+```
+
+## prepare data - create venn object
+
+```{r}
+ps_venn <- ps_cultivar
+###################   SHARED AND UNIQUE SEQUENCES BY SITE
+        #library(gplots) #required for Venn diagram. Online Venn diagram tools like Venny are also available. 
+        
+#Empty lists - we have 2 groups so we need 2 empty lists
+venn.list<-rep(list(NA),2)
+poplist<-rep(list(NA),2)
+pops<-as.character(unique(sample_data(ps_venn)$Culture))
+          
+#Populate List with the Names of Groups we Want to Compare
+poplist[[1]]<-pops[1]
+poplist[[2]]<-pops[2]
+
+#Name the Groups in the Vennlist
+names(venn.list)<-pops
+
+
+#Loop        
+#Loop over each population, subset the phyloseq object to just that population and work out which ASVs are in that population, store those names in the list
+        for(k in 1:2){
+          
+        #Subset Phyloseq Object to One Pop at a time  
+         phy.sub<-prune_samples(sample_data(ps_venn)$Culture %in% poplist[[k]],ps_venn)
+          
+        #Calculate which ASVs are present (non-zero abundance)  
+          phy.sub.keep<-apply(otu_table(phy.sub),1,function(x){sum(x)>0})
+          
+        #Prune down to only those ASVs  
+          phy.sub.sub<-prune_taxa(phy.sub.keep,phy.sub)
+          
+        #Extract the names of these ASVs and store them in the appropriate list slot  
+          venn.list[[k]]<-rownames(otu_table(phy.sub.sub))
+        } #loop end
+        
+#Draw Venn Diagram, automatically calculate overlap in the list and unique variants
+gplots::venn(venn.list)
+```
+
+## Plot
+
+```{r}
+venn_culture_colors <- c("#5A8FBF","#A0522D")
+ggvenn_plot <- ggvenn(
+  venn.list,
+  fill_color   = venn_culture_colors,
+  stroke_size  = 0.4,         # a bit thinner for small export
+  set_name_size = 4,          # set labels (around circles)
+  text_size     = 3         # counts inside regions
+)
+
+pb_5 <- ggvenn_plot +
+  ggtitle("Culture") +
+  coord_cartesian(clip = "off") +  # <- let labels extend beyond panel
+  theme(
+    plot.title       = element_text(size = 8, face = "bold", hjust = 0.5, margin = margin(b = 4)),
+    panel.background = element_rect(fill = "white", color = NA),
+    plot.background  = element_rect(fill = "white", color = NA),
+    axis.text        = element_blank(),
+    axis.ticks       = element_blank(),
+    axis.title       = element_blank(),
+    plot.margin      = margin(t = 12, r = 4, b = 4, l = 4)  # <- more top margin
+  )
+pb_5
+# Save at the same compact size & high DPI as your other figure
+ggsave(
+  filename = file.path(folder_path, "ggvenn_plot.png"),
+  plot     = pb_5,
+  width    = 3.35, height = 2.35, units = "in",
+  dpi      = 600,
+  device   = ragg::agg_png,
+  bg       = "white"
+)
+
+```
+
+## 4 - Taxonomy plots
+
+## Create a new folder_path
+
+```{r}
+#create a directory named "taxonomy_plots" in the current working directory:
+folder_path <- "outputs/taxonomy_plots"
+  if (!dir.exists(folder_path)) {
+    dir.create(folder_path, recursive = TRUE)
+    cat("Folder created successfully!\n")
+  } else {
+    cat("Folder already exists!\n")
+  }
+
+```
+
+## Define my ps object
+
+```{r}
+ps_tax <-ps_cultivar
+
+ps_tax_comp <- microbiome::transform(ps_tax, "compositional")
+
+```
+
+## 4.1 - Phylum
+
+## Create a new folder_path
+
+```{r}
+#create a directory named "taxonomy_plots" in the current working directory:
+folder_path <- "outputs/taxonomy_plots/phylum/"
+  if (!dir.exists(folder_path)) {
+    dir.create(folder_path, recursive = TRUE)
+    cat("Folder created successfully!\n")
+  } else {
+    cat("Folder already exists!\n")
+  }
+```
+
+## prepare data - agregate taxa and agregate rare taxa in "others"
+
+```{r}
+taxa <- "Phylum"
+#Aggregate rare
+ps_aggregate <- microbiome::aggregate_rare(
+  ps_tax_comp, level = taxa,
+  detection = 0.01, prevalence = 0/100 
+)
+
+```
+
+## Save as dataframe
+
+```{r}
+otutable <- phyloseq::otu_table(ps_aggregate)
+taxtable <- phyloseq::tax_table(ps_aggregate)
+sampledata <- phyloseq::sample_data(ps_aggregate)
+merged_otu_tax <- merge(taxtable, otutable, by = "row.names")
+rownames(merged_otu_tax) <- merged_otu_tax$Row.names
+merged_otu_tax <- merged_otu_tax %>%
+  dplyr::select(-Row.names)
+merged_otu_tax <- t(merged_otu_tax)
+merged_otu_tax_sam <- merge(merged_otu_tax, sampledata, by = "row.names")
+file_path <- file.path(folder_path, "taxa_relative_frequencies.csv")
+head(merged_otu_tax_sam)
+write.csv(merged_otu_tax_sam, file_path, row.names = FALSE)
+```
+
+## Plot
+
+```{r}
+#choose the number of colors
+palette_20 <- colorRampPalette(brewer.pal(12, "Paired"))(20)
+
+# TREATMENT
+# plot
+pb6_phylum <- ps_aggregate %>%
+  microbiome::plot_composition(sample.sort = "Culture",
+                               average_by   = "Culture") +
+  scale_fill_manual("Phylum", values = palette_20) +
+  ggtitle("TOP Phylum Culture") +
+  ylab("Relative Abundance (%)") +
+  xlab("") +
+  scale_y_continuous(labels = scales::percent_format(scale = 100)) +
+  theme_bw(base_size = 7) +
+  theme(
+    panel.background = element_rect(fill = "white", colour = NA),
+    plot.background  = element_rect(fill = "white", colour = NA),
+    panel.grid       = element_blank(),
+    axis.ticks.x     = element_blank(),
+    axis.text.x      = element_text(size = 6, angle = 0, vjust = 1, hjust = 0.5),
+    axis.text.y      = element_text(size = 6),
+    axis.title.x     = element_text(size = 6.5, margin = margin(t = 6)),
+    axis.title.y     = element_text(size = 6.5, margin = margin(r = 4)),
+    plot.title       = element_text(size = 8, face = "bold", hjust = 0.5, margin = margin(b = 3)),
+    legend.position  = "right",              # <-- move legend to the right
+    legend.justification = "center",
+    legend.direction = "vertical",
+    legend.title     = element_text(size = 6.5),
+    legend.text      = element_text(size = 5.5),
+    legend.key.size  = unit(5, "pt"),
+    legend.key.width = unit(7, "pt"),
+    legend.spacing.y = unit(2, "pt"),
+    legend.box.margin= margin(0, 0, 0, 2),
+    plot.margin      = margin(3, 3, 3, 3)    # slightly tighter to give legend room
+  ) +
+  guides(fill = guide_legend(ncol = 1, byrow = FALSE, title.position = "top"))
+pb6_phylum
+
+ggsave(
+  filename = file.path(folder_path, "TOP_phylum_aggregated.png"),
+  plot     = pb6_phylum,
+  width    = 3.35, height = 2.35, units = "in",
+  dpi      = 600,
+  device   = ragg::agg_png,
+  bg       = "white"
+)
+
+# plot
+df_plot <- psmelt(ps_aggregate)
+
+# order samples by Culture
+df_plot$Sample <- factor(df_plot$Sample,
+                         levels = unique(df_plot$Sample[order(df_plot$Culture)]))
+
+pb7_phylum <- ggplot(df_plot, aes(x = Sample, y = Abundance, fill = Phylum)) +
+  geom_bar(stat = "identity", position = "stack") +
+  facet_wrap(~ Culture, scales = "free_x") +
+  scale_fill_manual("Phylum", values = palette_20) +
+  ggtitle("TOP Phylum Culture") +
+  ylab("Relative Abundance (%)") +
+  xlab("") +
+  scale_y_continuous(labels = scales::percent_format(scale = 100)) +
+  theme_bw(base_size = 7) +
+  theme(
+    panel.background = element_rect(fill = "white", colour = NA),
+    plot.background  = element_rect(fill = "white", colour = NA),
+    panel.grid       = element_blank(),
+    axis.ticks.x     = element_blank(),
+    axis.text.x      = element_text(size = 6, angle = 0, vjust = 1, hjust = 0.5),
+    axis.text.y      = element_text(size = 6),
+    axis.title.x     = element_text(size = 6.5, margin = margin(t = 6)),
+    axis.title.y     = element_text(size = 6.5, margin = margin(r = 4)),
+    plot.title       = element_text(size = 8, face = "bold", hjust = 0.5, margin = margin(b = 3)),
+    legend.position  = "right",
+    legend.justification = "center",
+    legend.direction = "vertical",
+    legend.title     = element_text(size = 6.5),
+    legend.text      = element_text(size = 5.5),
+    legend.key.size  = unit(5, "pt"),
+    legend.key.width = unit(7, "pt"),
+    legend.spacing.y = unit(2, "pt"),
+    legend.box.margin= margin(0, 0, 0, 2),
+    plot.margin      = margin(3, 3, 3, 3)
+  ) +
+  guides(fill = guide_legend(ncol = 1, byrow = FALSE, title.position = "top"))
+
+pb7_phylum
+
+ggsave(
+  filename = file.path(folder_path, "TOP_phylum_sample.png"),
+  plot     = pb7_phylum,
+  width    = 3.35, height = 2.35, units = "in",
+  dpi      = 600,
+  device   = ragg::agg_png,
+  bg       = "white"
+)
+
+```
+
+## 4.2 - Genus
+
+## Create a new folder_path
+
+```{r}
+#create a directory named "taxonomy_plots" in the current working directory:
+folder_path <- "outputs/taxonomy_plots/genus/"
+  if (!dir.exists(folder_path)) {
+    dir.create(folder_path, recursive = TRUE)
+    cat("Folder created successfully!\n")
+  } else {
+    cat("Folder already exists!\n")
+  }
+```
+
+## prepare data - agregate taxa and agregate rare taxa in "others"
+
+```{r}
+taxa <- "Genus"
+#Aggregate rare
+ps_aggregate <- microbiome::aggregate_rare(
+  ps_tax_comp, level = taxa,
+  detection = 0.04, prevalence = 0/100 
+)
+
+```
+
+## Save as dataframe
+
+```{r}
+otutable <- phyloseq::otu_table(ps_aggregate)
+taxtable <- phyloseq::tax_table(ps_aggregate)
+sampledata <- phyloseq::sample_data(ps_aggregate)
+merged_otu_tax <- merge(taxtable, otutable, by = "row.names")
+rownames(merged_otu_tax) <- merged_otu_tax$Row.names
+merged_otu_tax <- merged_otu_tax %>%
+  dplyr::select(-Row.names)
+merged_otu_tax <- t(merged_otu_tax)
+merged_otu_tax_sam <- merge(merged_otu_tax, sampledata, by = "row.names")
+file_path <- file.path(folder_path, "taxa_relative_frequencies.csv")
+head(merged_otu_tax_sam)
+write.csv(merged_otu_tax_sam, file_path, row.names = FALSE)
+```
+
+## Plot
+
+```{r}
+#choose the number of colors
+palette_20 <- colorRampPalette(brewer.pal(12, "Paired"))(20)
+
+# TREATMENT
+# plot
+pb6_genus <- ps_aggregate %>%
+  microbiome::plot_composition(sample.sort = "Culture",
+                               average_by   = "Culture") +
+  scale_fill_manual("Genus", values = palette_20) +
+  ggtitle("TOP Genus Culture") +
+  ylab("Relative Abundance (%)") +
+  xlab("") +
+  scale_y_continuous(labels = scales::percent_format(scale = 100)) +
+  theme_bw(base_size = 7) +
+  theme(
+    panel.background = element_rect(fill = "white", colour = NA),
+    plot.background  = element_rect(fill = "white", colour = NA),
+    panel.grid       = element_blank(),
+    axis.ticks.x     = element_blank(),
+    axis.text.x      = element_text(size = 6, angle = 0, vjust = 1, hjust = 0.5),
+    axis.text.y      = element_text(size = 6),
+    axis.title.x     = element_text(size = 6.5, margin = margin(t = 6)),
+    axis.title.y     = element_text(size = 6.5, margin = margin(r = 4)),
+    plot.title       = element_text(size = 8, face = "bold", hjust = 0.5, margin = margin(b = 3)),
+    legend.position  = "right",              # <-- move legend to the right
+    legend.justification = "center",
+    legend.direction = "vertical",
+    legend.title     = element_text(size = 6.5),
+    legend.text      = element_text(size = 5.5),
+    legend.key.size  = unit(5, "pt"),
+    legend.key.width = unit(7, "pt"),
+    legend.spacing.y = unit(2, "pt"),
+    legend.box.margin= margin(0, 0, 0, 2),
+    plot.margin      = margin(3, 3, 3, 3)    # slightly tighter to give legend room
+  ) +
+  guides(fill = guide_legend(ncol = 1, byrow = FALSE, title.position = "top"))
+pb6_genus
+
+ggsave(
+  filename = file.path(folder_path, "TOP_genus_aggregated.png"),
+  plot     = pb6_genus,
+  width    = 3.35, height = 2.35, units = "in",
+  dpi      = 600,
+  device   = ragg::agg_png,
+  bg       = "white"
+)
+
+# plot
+df_plot <- psmelt(ps_aggregate)
+
+# order samples by Culture
+df_plot$Sample <- factor(df_plot$Sample,
+                         levels = unique(df_plot$Sample[order(df_plot$Culture)]))
+
+pb7_genus <- ggplot(df_plot, aes(x = Sample, y = Abundance, fill = Genus)) +
+  geom_bar(stat = "identity", position = "stack") +
+  facet_wrap(~ Culture, scales = "free_x") +
+  scale_fill_manual("Genus", values = palette_20) +
+  ggtitle("TOP Genus Culture") +
+  ylab("Relative Abundance (%)") +
+  xlab("") +
+  scale_y_continuous(labels = scales::percent_format(scale = 100)) +
+  theme_bw(base_size = 7) +
+  theme(
+    panel.background = element_rect(fill = "white", colour = NA),
+    plot.background  = element_rect(fill = "white", colour = NA),
+    panel.grid       = element_blank(),
+    axis.ticks.x     = element_blank(),
+    axis.text.x      = element_text(size = 6, angle = 0, vjust = 1, hjust = 0.5),
+    axis.text.y      = element_text(size = 6),
+    axis.title.x     = element_text(size = 6.5, margin = margin(t = 6)),
+    axis.title.y     = element_text(size = 6.5, margin = margin(r = 4)),
+    plot.title       = element_text(size = 8, face = "bold", hjust = 0.5, margin = margin(b = 3)),
+    legend.position  = "right",
+    legend.justification = "center",
+    legend.direction = "vertical",
+    legend.title     = element_text(size = 6.5),
+    legend.text      = element_text(size = 5.5),
+    legend.key.size  = unit(5, "pt"),
+    legend.key.width = unit(7, "pt"),
+    legend.spacing.y = unit(2, "pt"),
+    legend.box.margin= margin(0, 0, 0, 2),
+    plot.margin      = margin(3, 3, 3, 3)
+  ) +
+  guides(fill = guide_legend(ncol = 1, byrow = FALSE, title.position = "top"))
+
+pb7_genus
+
+ggsave(
+  filename = file.path(folder_path, "TOP_genus_sample.png"),
+  plot     = pb7_genus,
+  width    = 3.35, height = 2.35, units = "in",
+  dpi      = 600,
+  device   = ragg::agg_png,
+  bg       = "white"
+)
+
+```
+
+## 5 - Faprotax
+
+## Create a new folder_path
+
+```{r}
+folder_path <- "outputs/faprotax/"
+  if (!dir.exists(folder_path)) {
+    dir.create(folder_path, recursive = TRUE)
+    cat("Folder created successfully!\n")
+  } else {
+    cat("Folder already exists!\n")
+  }
+  
+```
+
+## Define my ps object
+
+```{r}
+ps_faprotax <- ps_cultivar
+ps_faprotax
+```
+
+```{r}
+faprotax_data <- read.table("data/functional_table.tsv", sep = "\t", header = TRUE, check.names = FALSE)
+head(faprotax_data)
+
+# Set 'group' as row names
+rownames(faprotax_data) <- faprotax_data$group
+
+# Remove the 'group' column (which is now redundant)
+faprotax_data <- faprotax_data[, -1]
+
+sample_data <- as.data.frame(sample_data(ps_faprotax))
+sampledata_df2 <- as.data.frame(as.matrix(sample_data))%>%
+                    dplyr::rename(Plot = Site)  %>%
+                    dplyr::select(-Cultivar_system, -Type, -Tillage, -Animal)
+```
+
+## Run deseq
+
+```{r}
+cols_keep <- c("A1", "A19", "A2", "A20", "A21", "A22", "A23", "A24", "A3", "A4", "A5", "A6")
+
+faprotax_data <- faprotax_data %>%
+  select(any_of(cols_keep))
+# 3) Check matching
+all(colnames(faprotax_data) == rownames(sampledata_df2))
+# should return TRUE
+
+# make sure your colData has the factor in the order you want:
+sampledata_df2$Culture <- relevel(factor(sampledata_df2$Culture),
+                                       ref = "Almond")
+
+# 4) Create DESeqDataSet
+dds <- DESeqDataSetFromMatrix(
+  countData = faprotax_data,
+  colData   = sampledata_df2,
+  design    = ~ Culture
+)
+
+# 5) Run DESeq
+dds <- DESeq(dds)
+
+# 6) Extract results
+res <- as.data.frame(results(dds, contrast = c("Culture", "Olive", "Almond"))) # c("FACTOR_NAME", "NUMERATOR_LEVEL", "DENOMINATOR_LEVEL")
+res_ordered <- res[order(res$padj), ]
+# 8. Save results to CSV
+write.csv(
+  as.data.frame(res_ordered),
+  file = file.path(folder_path, "deseq_res.csv")
+)
+
+```
+
+## Save results
+
+```{r}
+alpha = 0.05
+sigtab = res[which(res$padj < alpha), ]
+head(sigtab)
+sigtab <- sigtab %>%
+  arrange(desc(log2FoldChange))
+
+# assuming folder_path is defined, and filename_out is e.g. "sigtab.csv"
+filename_out <- "deseq_res_significant.csv"
+write.csv(
+  sigtab,
+  file = file.path(folder_path, filename_out),
+  row.names = TRUE
+)
+
+```
+
+## Plot deseq complete
+
+```{r}
+rownames(sigtab) <- sapply(rownames(sigtab), function(x) {
+  # replace underscores with spaces
+  x2 <- gsub("_", " ", x)
+  # capitalize only the first letter
+  paste0(toupper(substr(x2, 1, 1)), substr(x2, 2, nchar(x2)))
+})
+
+# 1. Move rownames into a column
+sigtab$Function <- rownames(sigtab)
+
+# 2. Create a descriptive Change column
+sigtab$Change <- ifelse(
+  sigtab$log2FoldChange >= 0,
+  "Increased",
+  "Decreased"
+)
+
+# 3. Preserve current order of functions
+sigtab$Function <- factor(sigtab$Function, levels = sigtab$Function)
+
+# 4. Build horizontal barplot with legend and white background
+pb4 <- ggplot(sigtab, aes(x = log2FoldChange, y = Function, fill = Change)) +
+  geom_col(width = 0.7) +
+  scale_fill_manual(
+    name   = "Olive (Ref Almond)",
+    values = c("Increased" = "#5A8FBF", "Decreased" = "#A0522D")
+  ) +
+  geom_vline(xintercept = c(-2, 2), linetype = "dotted") +
+  scale_y_discrete() +
+  coord_cartesian(clip = "off") +
+  theme_bw(base_size = 6) +
+  theme(
+    axis.text.y   = element_text(size = 5, lineheight = 0.8),
+    axis.text.x   = element_text(size = 6),
+    axis.title.x  = element_text(size = 6.5, margin = margin(t = 2)),
+    axis.title.y  = element_text(size = 6.5, margin = margin(r = 4)),
+    plot.title    = element_text(size = 7.5, face = "bold", hjust = 0.5),
+    legend.position    = "bottom",
+    legend.direction   = "horizontal",
+    legend.title       = element_text(size = 6.5),
+    legend.text        = element_text(size = 5.5),
+    legend.key.size    = unit(5, "pt"),
+    legend.key.width   = unit(9, "pt"),
+    legend.margin      = margin(0, 0, 0, 0),
+    legend.box.margin  = margin(0, 0, 0, 0),
+    panel.grid.minor   = element_blank(),
+    panel.grid.major.y = element_blank(),
+    plot.margin        = margin(3, 4, 3, 4)
+  ) +
+  guides(fill = guide_legend(nrow = 1, byrow = TRUE, title.position = "top")) +
+  labs(
+    title = NULL,
+    x = "Log2 fold change",
+    y = "Putative bacterial functional groups"
+  )
+
+  
+# 5. Display
+print(pb4)
+
+# 6. Save to your folder_path
+ggsave(
+  filename = file.path(folder_path, "deseq_sig_culture.png"),
+  plot     = pb4,
+  width = 3.35, height = 2.0, units = "in",
+  dpi = 600,
+  device = ragg::agg_png, # crisp text/lines; install.packages("ragg") if needed
+  bg = "white"
+)
+
+```
+
+# Session information
+
+```{r}
+sessionInfo()
+```
