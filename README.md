@@ -1,5 +1,7 @@
 # Teaching Microbiomes and One Health: computational practical sessions
 
+[![DOI](https://zenodo.org/badge/1452498296.svg)](https://doi.org/10.5281/zenodo.24116287)
+
 Teaching materials for the two computational practical sessions described in:
 
 > Costa, Joana & Leitão, Ricardo. Teaching Microbiomes and One Health in the Age of AI: A Field-Tested Curriculum Sequence for Complex Causality, Data Interpretation, and Evidence-to-Action Learning. *Journal of Microbiology & Biology Education* (submitted).
@@ -33,7 +35,7 @@ This repository accompanies Appendix S2 of the article.
 
 ## Quick start
 
-1. **Download** the repository: from Zenodo (archived release; see "How to cite") or GitHub (green **Code** button → **Download ZIP**). Unzip it.
+1. **Download** the repository: from Zenodo (https://doi.org/10.5281/zenodo.24116287) or GitHub (green **Code** button → **Download ZIP**). Unzip it.
 2. **Open** `JMBE_2026.Rproj` in RStudio.
 3. **Install packages** once: open `install_R_packages.Rmd` and run all chunks. The last chunk reports any package that failed to install.
 4. **Session 1 only: download the SILVA reference file** (about 139 MB; too large for this repository). Download `silva_nr99_v138.2_toGenus_trainset.fa.gz` from <https://zenodo.org/records/14169026> and save it in `practical_session1/data/`.
@@ -84,7 +86,7 @@ Instructors are encouraged to adapt the scripts, datasets, and student guides to
 
 If you use these materials, please cite the article and this repository:
 
-> Costa, Joana & Leitão, Ricardo. (2026). *Teaching Microbiomes and One Health: R Markdown workflows and data for two computational practical sessions* (Version 1.0) [Computer software and data set]. Zenodo.
+> Costa, Joana & Leitão, Ricardo. (2026). *Teaching Microbiomes and One Health: R Markdown workflows and data for two computational practical sessions* [Computer software and data set]. Zenodo. https://doi.org/10.5281/zenodo.24116287
 
 ## License
 
